@@ -180,11 +180,12 @@ def request_token(pool, resource, scopes=None, local_dir=None):
     token.write(token_name)
     logger.debug("Wrote token to disk (at {})".format(msg_path))
 
-    logger.debug("Correcting token file permissions...")
-    shutil.chown(token_path, user=TOKEN_OWNER_USER, group=TOKEN_OWNER_GROUP)
-    logger.debug("Corrected token file permissions...")
     print("Token was written to {}".format(msg_path))
-    if not is_admin():
+    if is_admin():
+        logger.debug("Correcting token file permissions...")
+        shutil.chown(token_path, user=TOKEN_OWNER_USER, group=TOKEN_OWNER_GROUP)
+        logger.debug("Corrected token file permissions...")
+    else:
         print(NONROOT_TOKEN_MSG.format(path=msg_path, name=token_name))
 
     return True
