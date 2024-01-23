@@ -1,7 +1,7 @@
 
 ARG IMAGE_BASE_TAG=release
 
-FROM opensciencegrid/software-base:3.6-el7-$IMAGE_BASE_TAG
+FROM opensciencegrid/software-base:23-el9-$IMAGE_BASE_TAG
 
 LABEL maintainer OSG Software <support@opensciencegrid.org>
 
@@ -10,6 +10,7 @@ RUN \
     (yum install -y git-core || yum install -y git) && \
     yum install -y --enablerepo=osg-upcoming condor && \
     yum install -y python3-pip httpd mod_auth_openidc mod_ssl python3-mod_wsgi && \
+    yum install -y make && \
     yum clean all && rm -rf /var/cache/yum/*
 
 RUN \
