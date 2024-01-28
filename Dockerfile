@@ -1,9 +1,10 @@
+ARG BASE_OSG_SERIES=23
+ARG BASE_OS=el9
+ARG BASE_YUM_REPO=release
 
-ARG IMAGE_BASE_TAG=release
+FROM opensciencegrid/software-base:$BASE_OSG_SERIES-$BASE_OS-$BASE_YUM_REPO
 
-FROM opensciencegrid/software-base:3.6-el7-$IMAGE_BASE_TAG
-
-LABEL maintainer OSG Software <support@opensciencegrid.org>
+LABEL maintainer OSG Software <help@osg-htc.org>
 
 RUN \
     yum update -y && \
