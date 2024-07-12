@@ -25,6 +25,9 @@ RUN \
 COPY registry run_local.sh requirements.txt /opt/registry/
 RUN pip3 install -U pip && pip3 install -r /opt/registry/requirements.txt
 
+# Use our weird grid-security cert/key location
+RUN rm /etc/httpd/conf.d/ssl.conf
+
 COPY register.py /usr/bin
 COPY supervisor-apache.conf /etc/supervisord.d/40-apache.conf
 COPY examples/apache.conf /etc/httpd/conf.d/
