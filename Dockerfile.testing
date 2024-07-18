@@ -9,7 +9,7 @@ RUN \
     yum update -y && \
     (yum install -y git-core || yum install -y git) && \
     yum install -y --enablerepo=osg-upcoming condor && \
-    yum install -y python3-pip httpd mod_auth_openidc mod_ssl python3-mod_wsgi && \
+    yum install -y python3-pip httpd mod_auth_openidc mod_ssl python3-mod_wsgi logrotate && \
     yum install -y make && \
     yum clean all && rm -rf /var/cache/yum/*
 
@@ -28,8 +28,12 @@ RUN pip3 install -U pip && pip3 install -r /opt/registry/requirements.txt
 # Use our weird grid-security cert/key location
 RUN rm /etc/httpd/conf.d/ssl.conf
 
+# Setup cron job for logrotate to run as root every day  
+RUN echo "0 0 * * * root /usr/sbin/logrotate /etc/logrotate.d/httpd >> /var/log/cron 2>&1" > /etc/cron.d/logrotate-httpd  
+
 COPY register.py /usr/bin
 COPY supervisor-apache.conf /etc/supervisord.d/40-apache.conf
+COPY logrotate-http.conf /etc/logrotate.d/httpd
 COPY examples/apache.conf /etc/httpd/conf.d/
 
 ENV CONFIG_DIR=/srv
