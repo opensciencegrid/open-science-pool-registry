@@ -24,14 +24,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        osg_series: ['23']
+        osg_series:
+        - series: '23'
+          image: 'opensciencegrid'
+        - series: '24'
+          image: 'osg-htc'    
         os: ['el9']
         repo: ['release']
     steps:
       - uses: opensciencegrid/build-container-action@v0.6.1
         with:
           base_os: ${{ matrix.os }}
-          osg_series: ${{ matrix.osg_series }}
+          osg_series: ${{ matrix.osg_series.series }}
+          output_image: ${{ matrix.osg_series.image }}/${{ github.event.repository.name }}:${{ matrix.osg_series.series }}-${{ matrix.repo }}
           osg_repo: ${{ matrix.repo }}
           push_image: ${{ github.ref == 'refs/heads/master' && github.event_name != 'pull_request' && github.repository_owner == 'opensciencegrid'}}
           registry_url: hub.opensciencegrid.org
