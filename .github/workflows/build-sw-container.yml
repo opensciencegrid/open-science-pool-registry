@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        osg_series: ['23']
+        osg_series: ['23', '24']
         os: ['el9']
         repo: ['release']
     steps:
