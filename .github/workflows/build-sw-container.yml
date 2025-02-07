@@ -34,7 +34,7 @@ jobs:
         os: ['el9']
         repo: ['release']
     steps:
-      - uses: opensciencegrid/build-container-action@v0.6.1
+      - uses: opensciencegrid/build-container-action@v0.7.0
         with:
           base_os: ${{ matrix.os }}
           osg_series: ${{ matrix.osg_series.series }}
