@@ -27,8 +27,10 @@ jobs:
         osg_series:
         - series: '23'
           image: 'opensciencegrid'
+          platform: 'linux/amd64'
         - series: '24'
-          image: 'osg-htc'    
+          image: 'osg-htc'
+          platform: 'linux/amd64,linux/arm64'
         os: ['el9']
         repo: ['release']
     steps:
@@ -38,6 +40,7 @@ jobs:
           osg_series: ${{ matrix.osg_series.series }}
           output_image: ${{ matrix.osg_series.image }}/${{ github.event.repository.name }}:${{ matrix.osg_series.series }}-${{ matrix.repo }}
           osg_repo: ${{ matrix.repo }}
+          platform: ${{ matrix.osg_series.platform }}
           push_image: ${{ github.ref == 'refs/heads/master' && github.event_name != 'pull_request' && github.repository_owner == 'opensciencegrid'}}
           registry_url: hub.opensciencegrid.org
           registry_user: ${{ secrets.OSG_HARBOR_ROBOT_USER }}
