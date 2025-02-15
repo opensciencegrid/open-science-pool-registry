@@ -23,5 +23,6 @@ COPY registry /srv/registry/
 
 ENV PYTHONUNBUFFERED=1
 ENV CONFIG_DIR=/srv
+ENV NO_CHOWN=1
 #ENTRYPOINT ["/opt/registry/run_local.sh"]
 #CMD ["--host=0.0.0.0"]
