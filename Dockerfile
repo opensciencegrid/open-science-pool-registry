@@ -6,6 +6,13 @@ FROM opensciencegrid/software-base:$BASE_OSG_SERIES-$BASE_OS-$BASE_YUM_REPO
 
 LABEL maintainer OSG Software <help@osg-htc.org>
 
+# FIXME: this can be removed when we migrate to HTCSS 25 as the static
+# setting is provided by upstream in the RPM
+# SOFTWARE-6355: Ensure that the 'condor' UID/GID matches across containers
+RUN groupadd -g 64 -r condor && \
+    useradd -r -g condor -d /var/lib/condor -s /sbin/nologin \
+      -u 64 -c "Owner of HTCondor Daemons" condor
+
 RUN \
     yum update -y && \
     yum install -y condor && \
