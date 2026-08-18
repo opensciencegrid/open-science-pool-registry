@@ -11,8 +11,8 @@ import time
 import shutil
 import re
 
-import htcondor
-import classad
+import htcondor2 as htcondor
+import classad2 as classad
 
 logger = logging.getLogger("register")
 logger.setLevel(logging.ERROR + 10)

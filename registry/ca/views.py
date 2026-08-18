@@ -15,13 +15,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 
 import cryptography.x509 as x509
 
-import htcondor
-
-# At the time of writing, HTCSS has a bug that causes SecMan calls inside
-# the context manager to deadlock (see: HTCONDOR-924).  This unwraps the
-# call gracefully for now and should just be dead code one the bug is fixed.
-if hasattr(htcondor.SecMan.__enter__, "__wrapped__"):
-    htcondor.SecMan.__enter__ = htcondor.SecMan.__enter__.__wrapped__
+import htcondor2 as htcondor
 
 ca_bp = Blueprint(
     "ca",
@@ -67,9 +61,8 @@ def ping_authz(token, today):
     addrs = socket.getaddrinfo(collector, 9618, socket.AF_INET, socket.SOCK_STREAM)[0][-1]
     myaddr = f"<{addrs[0]}:{addrs[1]}>"
 
-    with htcondor.SecMan() as secman:
-        secman.setToken(htcondor.Token(token))
-        return dict(secman.ping(myaddr))
+    security = htcondor.SecurityContext(token=token)
+    return dict(htcondor.ping(myaddr, security=security))
 
 
 @ca_bp.route("/syslog-ca/issue", methods=["POST"])
@@ -125,4 +118,3 @@ def connect():
                        ca=ca.public_bytes(serialization.Encoding.PEM).decode())
     except Exception as exc:
         return make_response(jsonify(err="Internal error when building certificate", exc=str(exc)), 500)
-
