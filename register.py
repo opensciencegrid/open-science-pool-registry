@@ -11,8 +11,7 @@ import time
 import shutil
 import re
 
-import htcondor
-import classad
+import classad2 as classad
 
 logger = logging.getLogger("register")
 logger.setLevel(logging.ERROR + 10)
@@ -27,6 +26,9 @@ RESOURCE_PREFIX = "RESOURCE-"
 RESOURCE_POSTFIX = "cm-1.ospool.osg-htc.org"
 NUM_RETRIES = 10
 TOKEN_OWNER_USER = TOKEN_OWNER_GROUP = "condor"
+TOKEN_DIR = "/etc/condor/tokens.d"
+TOKEN_REQUEST_COMMAND = "condor_token_request"
+TOKEN_REQUEST_ID_RE = re.compile(r"approve request (\S+)\.")
 SOURCE_CHECK = re.compile(r"^[a-zA-Z][-.0-9a-zA-Z]*$")
 
 
@@ -75,10 +77,6 @@ def main():
     args = parse_args()
 
     if args.verbose:
-        # HTCondor library logging setup
-        htcondor.param["TOOL_DEBUG"] = "D_FULLDEBUG D_SECURITY"
-        htcondor.enable_debug()
-
         # Python logging setup
         logger.setLevel(logging.DEBUG)
 
@@ -103,14 +101,17 @@ def main():
     #        "This command must be run as root (on Linux/Mac) or as an administrator (on Windows)"
     #    )
 
+    # condor_token_request is a separate process, so configuration that needs to
+    # apply to its collector connection is passed down via the standard
+    # "_CONDOR_<PARAM>" environment variable override rather than htcondor.param.
     logger.debug('Setting SEC_CLIENT_AUTHENTICATION_METHODS to "SSL"')
-    htcondor.param["SEC_CLIENT_AUTHENTICATION_METHODS"] = "SSL"
-    htcondor.param["SEC_CLIENT_ENCRYPTION"] = "REQUIRED"
+    os.environ["_CONDOR_SEC_CLIENT_AUTHENTICATION_METHODS"] = "SSL"
+    os.environ["_CONDOR_SEC_CLIENT_ENCRYPTION"] = "REQUIRED"
+    os.environ["_CONDOR_SEC_TOKEN_DIRECTORY"] = TOKEN_DIR
 
-    # TODO: temporary fix for https://github.com/HTPhenotyping/registration/issues/17
-    if htcondor.param["AUTH_SSL_CLIENT_CAFILE"] == "/etc/ssl/certs/ca-bundle.crt":
-        htcondor.param["AUTH_SSL_CLIENT_CAFILE"] = "/etc/ssl/certs/ca-certificates.crt"
-    success = request_token(pool=args.pool, resource=args.host, scopes=args.scope, local_dir=args.local_dir)
+    success = request_token(
+        pool=args.pool, resource=args.host, scopes=args.scope, local_dir=args.local_dir, verbose=args.verbose
+    )
 
     if not success:
         error("Failed to complete the token request workflow.")
@@ -135,7 +136,7 @@ NONROOT_TOKEN_MSG = '''"Registration not run as root; to use token:"
 '''
 
 
-def request_token(pool, resource, scopes=None, local_dir=None):
+def request_token(pool, resource, scopes=None, local_dir=None, verbose=False):
     if ":" in pool:
         alias, port = pool.split(":")
     else:
@@ -146,26 +147,23 @@ def request_token(pool, resource, scopes=None, local_dir=None):
     if not scopes:
         scopes = DEFAULT_TOKEN_SCOPES
 
-    coll_ad = classad.ClassAd(
-        {
-            "MyAddress": "<{}:{}?alias={}>".format(ip, port, alias),
-            "MyType": "Collector",
-        }
+    # condor_token_request accepts a sinful address (as well as a plain
+    # hostname) for its "-pool" argument, so we can keep pinning the
+    # resolved IP while preserving the alias for hostname-based auth checks.
+    collector_addr = "<{}:{}?alias={}>".format(ip, port, alias)
+    logger.debug("Constructed collector address: {}".format(collector_addr))
+
+    token_name = "50-{}-{}-registration".format(alias, resource)
+    token_path = os.path.join(TOKEN_DIR, token_name)
+
+    success = request_token_with_retries(
+        resource, collector_addr, token_name, scopes, verbose=verbose
     )
-    logger.debug("Constructed collector ad: {}".format(repr(coll_ad)))
 
-    htcondor.param["SEC_TOKEN_DIRECTORY"] = "/etc/condor/tokens.d"
-
-    token = request_token_and_wait_for_approval(resource, alias, coll_ad, scopes)
-
-    if token is None:
+    if not success:
         return False
 
     print("Token request approved!")
-
-    token_dir = htcondor.param["SEC_TOKEN_DIRECTORY"]
-    token_name = "50-{}-{}-registration".format(alias, resource)
-    token_path = os.path.join(token_dir, token_name)
 
     # We tell users to run register.py through the container and volume mount
     # "$PWD/tokens" into /etc/condor/tokens.d so our messages need to reflect
@@ -175,10 +173,6 @@ def request_token(pool, resource, scopes=None, local_dir=None):
         msg_path = os.path.join(local_dir, token_name).replace('\\', '/')
     else:
         msg_path = token_path
-
-    logger.debug("Writing token to disk (in {})".format(msg_path))
-    token.write(token_name)
-    logger.debug("Wrote token to disk (at {})".format(msg_path))
 
     print("Token was written to {}".format(msg_path))
     if is_admin():
@@ -191,22 +185,23 @@ def request_token(pool, resource, scopes=None, local_dir=None):
     return True
 
 
-def request_token_and_wait_for_approval(
-    resource, alias, collector_ad, scopes=None, retries=10, retry_delay=5
+def request_token_with_retries(
+    resource, pool, token_name, scopes=None, retries=10, retry_delay=5, verbose=False
 ):
     """
-    This function requests a token and waits for the request to be authorized.
-    If the authorization flow is successful, it will return the token.
-    Otherwise, it will return ``None``.
+    Retries request_token_and_wait_for_approval up to ``retries`` times (with
+    ``retry_delay`` seconds between attempts), returning ``True`` as soon as
+    an attempt succeeds, or ``False`` once all attempts are exhausted.
 
     Parameters
     ----------
     resource
         The resource to request a token for.
-    alias
-        The alias of the server (only used for user-facing messages).
-    collector_ad
-        The ClassAd used to contact the collector to make the token request to.
+    pool
+        The address of the collector to make the token request to.
+    token_name
+        The name of the token file condor_token_request should write to
+        (inside SEC_TOKEN_DIRECTORY) once the request is approved.
     retries
         The number of times to attempt the token authorization flow.
 
@@ -232,47 +227,82 @@ def request_token_and_wait_for_approval(
 
         print("\nAttempting to get token (attempt {}/{}) ...".format(attempt, retries))
         try:
-            req = make_token_request(collector_ad, resource, scopes)
+            request_token_and_wait_for_approval(pool, resource, token_name, scopes, verbose)
+            return True
         except Exception as e:
             logger.exception("Token request failed")
             print("Token request failed due to: {}".format(e))
-            continue
 
-        try:
-            # TODO: the url construction here is very manual; use urllib instead
-            lines = [
-                "Token request is queued with ID {}.".format(req.request_id),
-                'Go to this URL in your web browser (copy and paste it into the address bar) and approve the request by clicking "Approve":',
-                "https://{}/{}?code={}".format(
-                    WEBAPP_HOST, REGISTRATION_CODE_PATH, req.request_id
-                ),
-            ]
-            print("\n".join(lines))
-            return req.result(0)
-        except Exception as e:
-            logger.exception("Error while waiting for token approval.")
-            print("An error occurred while waiting for token approval: {}".format(e))
+    return False
 
 
-def make_token_request(collector_ad, resource, scopes=None):
+def print_approval_url(request_id):
+    # TODO: the url construction here is very manual; use urllib instead
+    lines = [
+        "Token request is queued with ID {}.".format(request_id),
+        'Go to this URL in your web browser (copy and paste it into the address bar) and approve the request by clicking "Approve":',
+        "https://{}/{}?code={}".format(
+            WEBAPP_HOST, REGISTRATION_CODE_PATH, request_id
+        ),
+    ]
+    print("\n".join(lines))
+
+
+def request_token_and_wait_for_approval(pool, resource, token_name, scopes=None, verbose=False):
+    """
+    Shell out to condor_token_request to request a token for ``resource``
+    from the collector at ``pool``. condor_token_request enqueues the
+    request, prints the assigned request ID, and then blocks until the
+    request is approved, at which point it writes the token to
+    ``token_name`` (inside SEC_TOKEN_DIRECTORY) itself.
+
+    Raises an exception if condor_token_request fails or exits without
+    ever reporting a request ID.
+    """
     if not scopes:
         scopes = DEFAULT_TOKEN_SCOPES
 
     identity = "{}{}@{}".format(RESOURCE_PREFIX, resource, RESOURCE_POSTFIX)
 
-    req = htcondor.TokenRequest(identity, bounding_set=scopes)
-    req.submit(collector_ad)
+    cmd = [TOKEN_REQUEST_COMMAND, "-pool", pool, "-identity", identity, "-token", token_name]
+    for scope in scopes:
+        cmd += ["-authz", scope]
+    if verbose:
+        cmd.append("-debug:D_FULLDEBUG:D_SECURITY")
 
-    # TODO: temporary fix for https://github.com/HTPhenotyping/registration/issues/10
-    # Yes, we could, in principle, hit the recursion limit here, but we would have to
-    # get exceedingly unlucky, and this is a simple, straightforward fix.
-    # Once we upgrade the server to whatever version of HTCondor this is fixed in,
-    # we can drop this code entirely.
-    if req.request_id.startswith("0"):
-        logger.debug("Got a token with a leading 0; trying again.")
-        return make_token_request(collector_ad, resource)
+    # condor_token_request fully block-buffers its stdout once it isn't attached
+    # to a terminal, so its approval-request message can sit unflushed in its
+    # buffer for as long as it's polling for approval. stdbuf forces unbuffered
+    # output so the message reaches us promptly.
+    cmd = ["stdbuf", "-o0"] + cmd
 
-    return req
+    logger.debug("Running: {}".format(" ".join(cmd)))
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+    request_id = None
+    for line in proc.stdout:
+        line = line.rstrip()
+        logger.debug("condor_token_request: {}".format(line))
+        if request_id is not None:
+            # Already found the request ID; this and any further lines are
+            # just debug/error chatter that we don't need to act on.
+            continue
+
+        # condor_token_request has no machine-readable way to report the request
+        # ID; it only prints a message like "... approve request <id>." once the
+        # request is enqueued and before it blocks waiting for approval. Scrape
+        # that line for the ID so we can build the approval URL below.
+        match = TOKEN_REQUEST_ID_RE.search(line)
+        if not match:
+            continue
+        request_id = match.group(1)
+        print_approval_url(request_id)
+
+    returncode = proc.wait()
+    if request_id is None:
+        raise RuntimeError("condor_token_request did not report a request ID")
+    if returncode != 0:
+        raise RuntimeError("condor_token_request exited with status {}".format(returncode))
 
 
 def reconfig():
