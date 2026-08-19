@@ -270,6 +270,12 @@ def request_token_and_wait_for_approval(pool, resource, token_name, scopes=None,
     if verbose:
         cmd.append("-debug:D_FULLDEBUG:D_SECURITY")
 
+    # condor_token_request fully block-buffers its stdout once it isn't attached
+    # to a terminal, so its approval-request message can sit unflushed in its
+    # buffer for as long as it's polling for approval. stdbuf forces unbuffered
+    # output so the message reaches us promptly.
+    cmd = ["stdbuf", "-o0"] + cmd
+
     logger.debug("Running: {}".format(" ".join(cmd)))
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
