@@ -38,8 +38,8 @@ def docker():
 
     def generate_cmd(sources, scopes):
         scope_opts = '--scope ' + ' --scope '.join(scopes)
-        docker_registry = "hub.opensciencegrid.org"
-        docker_image = "opensciencegrid/open-science-pool-registry:release"
+        docker_registry = "hub.osg-htc.org"
+        docker_image = "osg-htc/open-science-pool-registry:25-release"
         return {source: "mkdir -p tokens && " +
                 "docker run --rm -v $PWD/tokens:/etc/condor/tokens.d" +
                 f" {docker_registry}/{docker_image}" +
