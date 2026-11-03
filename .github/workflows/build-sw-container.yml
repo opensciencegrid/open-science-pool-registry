@@ -28,7 +28,9 @@ jobs:
         - series: '24'
           image: 'osg-htc'    
         - series: '25'
-          image: 'osg-htc'    
+          image: 'osg-htc' 
+        - series: '26'
+          image: 'osg-htc' 
         os: ['el9']
         repo: ['release']
     steps:
