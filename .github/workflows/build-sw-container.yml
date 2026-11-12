@@ -24,9 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        osg_series:
-        - series: '24'
-          image: 'osg-htc'    
+        osg_series:  
         - series: '25'
           image: 'osg-htc' 
         - series: '26'
